@@ -1,0 +1,16 @@
+# Exclude UI folder (frontend has its own repo)
+ui/
+
+# Node.js files that might confuse Railway's build detection
+node_modules/
+package.json
+package-lock.json
+yarn.lock
+*.js
+
+# Other non-essential files
+.git/
+.github/
+*.md
+LICENSE
+docs/ 
