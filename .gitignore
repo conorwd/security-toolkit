@@ -1,17 +1,41 @@
+# Python bytecode
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Test files
+.coverage
+htmlcov/
+
+# IDEs
+.idea/
+.vscode/
+*.sublime-*
+
+# Log files
+*.log
+
+# Results directory
+results/
+results_*/
+
+# Environment variables
+.env
+
+# Railway specific
+.railway/
+
 *.so
 .Python
-env/
-venv/
-ENV/
-.env
-.venv
-*.log
-.vscode/
-results_*/
-ui/static/results/
-.idea/
 *.exe
 *.dll 
