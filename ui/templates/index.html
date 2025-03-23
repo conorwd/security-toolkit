@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Toolkit UI</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        #liveResultsContainer {
+            margin-top: 20px;
+        }
+        .table-responsive {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .table th {
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <header class="mb-4 text-center">
+            <h1>Security Toolkit UI</h1>
+            <p class="lead">Web interface for penetration testing tools</p>
+        </header>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h2 class="h5 mb-0">Tool Selection</h2>
+                    </div>
+                    <div class="card-body">
+                        <form id="toolForm">
+                            <div class="mb-3">
+                                <label for="toolType" class="form-label">Select Tool</label>
+                                <select class="form-select" id="toolType" required>
+                                    <option value="" selected disabled>Choose a tool...</option>
+                                    <option value="subdomain">Subdomain Finder</option>
+                                    <option value="fuzzer">URL Fuzzer</option>
+                                    <option value="portscan">Port Scanner</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="domain" class="form-label">Target Domain</label>
+                                <input type="text" class="form-control" id="domain" 
+                                       placeholder="example.com" required>
+                            </div>
+
+                            <!-- Tool-specific options -->
+                            <div id="toolOptions">
+                                <!-- Subdomain Finder options -->
+                                <div id="subdomainOptions" class="tool-option-group" style="display: none;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="advancedDiscovery" name="advancedDiscovery" checked>
+                                        <label class="form-check-label" for="advancedDiscovery">Use advanced discovery methods</label>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="skipWordlist" name="skipWordlist">
+                                        <label class="form-check-label" for="skipWordlist">Skip wordlist-based enumeration</label>
+                                    </div>
+                                </div>
+                                
+                                <!-- URL Fuzzer options -->
+                                <div id="fuzzerOptions" class="tool-option-group" style="display: none;">
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="overrideExtensions" name="overrideExtensions">
+                                        <label class="form-check-label" for="overrideExtensions">Override default extensions</label>
+                                    </div>
+                                    <div id="extensionsContainer" style="display: none;">
+                                        <div class="mb-3">
+                                            <label for="extensions" class="form-label">File Extensions (comma separated)</label>
+                                            <input type="text" class="form-control" id="extensions" name="extensions" placeholder="php,html,js,txt">
+                                        </div>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="useIp" name="useIp">
+                                        <label class="form-check-label" for="useIp">Use IP address instead of hostname</label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Port Scanner options -->
+                                <div id="portscanOptions" class="tool-option-group" style="display: none;">
+                                    <div class="mb-3">
+                                        <label for="ports" class="form-label">Ports</label>
+                                        <input type="text" class="form-control" id="ports" 
+                                               value="1-1000">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="threads" class="form-label">Threads</label>
+                                <input type="number" class="form-control" id="threads" 
+                                       value="50" min="1" max="100">
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="timeout" class="form-label">Timeout (seconds)</label>
+                                <input type="number" class="form-control" id="timeout" 
+                                       value="2" min="1" max="10" step="0.5">
+                            </div>
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary" id="startButton">
+                                    Start Scan
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h2 class="h5 mb-0">Recent Tasks</h2>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-group" id="taskList">
+                            <!-- Task list will be populated here -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                        <h2 class="h5 mb-0">Results</h2>
+                        <div>
+                            <button class="btn btn-sm btn-light" id="downloadButton" disabled>
+                                Download Results
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="resultPanel">
+                            <div class="alert alert-info">
+                                Select a tool and start a scan to see results.
+                            </div>
+                        </div>
+                        <div id="progressPanel" style="display: none;">
+                            <div class="d-flex justify-content-center align-items-center p-5">
+                                <div class="spinner-border text-primary me-3" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <div>
+                                    <h4 id="progressText">Scan in progress...</h4>
+                                    <p id="progressDetails">This may take several minutes depending on the target.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html> 
