@@ -39,6 +39,9 @@ results_*/
 git-push.bat
 git-push.sh
 
+# UI folder
+ui/
+
 # Other
 *.so
 .Python
