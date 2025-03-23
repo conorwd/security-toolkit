@@ -178,9 +178,15 @@ async def root():
             "/results/{task_id} - Get task results",
             "/live_results/{task_id} - Get real-time results",
             "/download/{task_id} - Download results file",
-            "/tasks - List all tasks"
+            "/tasks - List all tasks",
+            "/health - Health check endpoint for monitoring"
         ]
     }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway monitoring"""
+    return {"status": "ok", "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 @app.post("/start_task", response_model=TaskResponse)
 async def start_task(task_request: TaskRequest, background_tasks: BackgroundTasks):
