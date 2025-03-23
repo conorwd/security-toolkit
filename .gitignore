@@ -35,6 +35,11 @@ results_*/
 # Railway specific
 .railway/
 
+# Git push scripts
+git-push.bat
+git-push.sh
+
+# Other
 *.so
 .Python
 *.exe
