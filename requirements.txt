@@ -9,4 +9,5 @@ python-multipart>=0.0.6
 aiofiles>=23.1.0
 dnspython>=2.3.0
 uuid>=1.30
-concurrent-log-handler>=0.9.20 
+concurrent-log-handler>=0.9.20
+python-nmap>=0.7.1 
