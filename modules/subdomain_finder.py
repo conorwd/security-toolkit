@@ -450,12 +450,8 @@ class SubdomainFinder:
                     cf_indicator = "CloudFlare" if ip_address in self.cloudflare_ips else "Direct"
                     f.write(f"{subdomain},{ip_address},{cf_indicator}\n")
                 
-                # Update progress bar description to show found subdomain
+                # Update progress bar without changing description for every found subdomain
                 if self.progress_bar:
-                    cf_text = f"{Fore.CYAN}[CF]{Style.RESET_ALL}" if ip_address in self.cloudflare_ips else ""
-                    self.progress_bar.set_description(
-                        f"{Fore.GREEN}[+] Found: {subdomain} -> {ip_address} {cf_text}{Style.RESET_ALL}"
-                    )
                     self.progress_bar.update(1)
             
             except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.exception.Timeout):
@@ -481,8 +477,9 @@ class SubdomainFinder:
             f.write(f"# Wordlist: {self.wordlist}\n\n")
             f.write("subdomain,ip_address,type\n")
         
-        # Create and start progress bar
-        self.progress_bar = tqdm(total=self.total_subdomains, desc="Checking", unit="sub")
+        # Create and start progress bar - with minimal output format
+        self.progress_bar = tqdm(total=self.total_subdomains, desc="Checking", unit="sub",
+                                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
         
         # Start worker threads
         threads = []
@@ -499,7 +496,7 @@ class SubdomainFinder:
         # Close progress bar
         self.progress_bar.close()
         
-        # Display results
+        # Display results - only at the end
         print("\n" + "=" * 60)
         print(f"{Fore.CYAN}[*] Subdomain Discovery Results{Style.RESET_ALL}")
         print("=" * 60)
@@ -509,21 +506,46 @@ class SubdomainFinder:
         else:
             found_ips = {}
             
-            # Group by IP for display
+            # Group by IP for display - limited to save memory
             for subdomain, ip_address in sorted(self.found_subdomains):
                 if ip_address not in found_ips:
                     found_ips[ip_address] = []
                 found_ips[ip_address].append(subdomain)
             
-            # Display by IP
-            for ip, subdomains in found_ips.items():
+            # Print summary first
+            print(f"{Fore.GREEN}[+] Found {len(self.found_subdomains)} subdomains across {len(found_ips)} unique IPs{Style.RESET_ALL}")
+            
+            # Display by IP - limit the number of IPs and subdomains shown to conserve output
+            max_ips_to_display = 10
+            max_subdomains_per_ip = 5
+            
+            for i, (ip, subdomains) in enumerate(found_ips.items()):
+                # Only show up to max_ips_to_display IPs
+                if i >= max_ips_to_display:
+                    remaining_ips = len(found_ips) - max_ips_to_display
+                    print(f"{Fore.YELLOW}[+] ... and {remaining_ips} more IPs (see output file for complete results){Style.RESET_ALL}")
+                    break
+                
                 cf_text = f"{Fore.CYAN} [CloudFlare]{Style.RESET_ALL}" if ip in self.cloudflare_ips else ""
                 print(f"{Fore.YELLOW}[+] IP: {ip}{cf_text}{Style.RESET_ALL}")
-                for subdomain in sorted(subdomains):
+                
+                # Only show up to max_subdomains_per_ip per IP
+                for j, subdomain in enumerate(sorted(subdomains)):
+                    if j >= max_subdomains_per_ip:
+                        remaining_subdomains = len(subdomains) - max_subdomains_per_ip
+                        print(f"  {Fore.GREEN}... and {remaining_subdomains} more subdomains{Style.RESET_ALL}")
+                        break
                     print(f"  {Fore.GREEN}[+] {subdomain}{Style.RESET_ALL}")
             
             print("\n" + "=" * 60)
-            print(f"{Fore.GREEN}[+] Found {len(self.found_subdomains)} subdomains across {len(found_ips)} unique IPs{Style.RESET_ALL}")
             print(f"{Fore.GREEN}[+] Results saved to {self.output}{Style.RESET_ALL}")
         
-        return self.found_subdomains 
+        # Clean up memory before returning
+        result_copy = list(self.found_subdomains)
+        self.found_subdomains = []  # Release memory
+        self.queue = Queue()  # Reset queue
+        self.wildcard_ips.clear()  # Clear sets to free memory
+        self.cloudflare_ips.clear()
+        self.random_response_signatures.clear()
+        
+        return result_copy 

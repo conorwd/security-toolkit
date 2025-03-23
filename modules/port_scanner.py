@@ -131,13 +131,7 @@ class PortScanner:
                     with open(self.output, "a") as f:
                         f.write(f"{port},{service},{version}\n")
                     
-                    # Update progress bar description to show found port
-                    service_str = f" ({service} {version})".strip() if service else ""
-                    if self.progress_bar:
-                        self.progress_bar.set_description(
-                            f"{Fore.GREEN}[+] Found: Port {port}{service_str}{Style.RESET_ALL}"
-                        )
-                
+                # Update progress without changing description for every found port
                 if self.progress_bar:
                     self.progress_bar.update(1)
             
@@ -169,8 +163,9 @@ class PortScanner:
         for port in self.port_list:
             self.port_queue.put(port)
         
-        # Create and start progress bar
-        self.progress_bar = tqdm(total=len(self.port_list), desc="Scanning", unit="port")
+        # Create and start progress bar with minimal output format
+        self.progress_bar = tqdm(total=len(self.port_list), desc="Scanning", unit="port",
+                                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
         
         # Start worker threads
         threads = []
@@ -188,7 +183,7 @@ class PortScanner:
         # Close progress bar
         self.progress_bar.close()
         
-        # Display results
+        # Display results only at the end
         print("\n" + "=" * 60)
         print(f"{Fore.CYAN}[*] Port Scan Results for {self.target} ({ip}){Style.RESET_ALL}")
         print("=" * 60)
@@ -199,17 +194,30 @@ class PortScanner:
             # Sort by port number
             self.open_ports.sort(key=lambda x: x[0])
             
-            # Build a table format
+            # Print summary first
+            print(f"{Fore.GREEN}[+] Found {len(self.open_ports)} open ports{Style.RESET_ALL}")
+            
+            # Build a table format - with limited output
+            max_ports_to_display = 20  # Limit display to save memory and output
             print(f"{Fore.GREEN}| {'PORT':<8} | {'STATE':<8} | {'SERVICE':<15} | {'VERSION':<20} |{Style.RESET_ALL}")
             print(f"{'-' * 60}")
             
-            for port, service, version in self.open_ports:
+            for port, service, version in self.open_ports[:max_ports_to_display]:
                 service = service or "unknown"
                 version = version or ""
                 print(f"| {port:<8} | {'open':<8} | {service:<15} | {version[:20]:<20} |")
             
+            # If there are more ports than our display limit, show count of remaining
+            if len(self.open_ports) > max_ports_to_display:
+                print(f"\n{Fore.GREEN}... and {len(self.open_ports) - max_ports_to_display} more ports (see output file for full results){Style.RESET_ALL}")
+            
             print("\n" + "=" * 60)
-            print(f"{Fore.GREEN}[+] Found {len(self.open_ports)} open ports{Style.RESET_ALL}")
             print(f"{Fore.GREEN}[+] Results saved to {self.output}{Style.RESET_ALL}")
         
-        return self.open_ports 
+        # Clean up memory before returning
+        result_copy = list(self.open_ports)
+        self.open_ports = []  # Clear memory
+        self.port_list = []   # Clear port list
+        self.port_queue = Queue()  # Reset queue
+        
+        return result_copy 
