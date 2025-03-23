@@ -31,6 +31,9 @@ class PortScanner:
         self.progress_bar = None
         self.port_list = []
         
+        # For tracking already reported ports
+        self.logged_ports = set()
+        
         # Remove protocol if present
         if "://" in self.target:
             self.target = self.target.split("://")[1].strip("/")
@@ -125,19 +128,31 @@ class PortScanner:
                 
                 if is_open:
                     port_info = (port, service, version)
-                    self.open_ports.append(port_info)
                     
-                    # Save to file immediately
-                    with open(self.output, "a") as f:
-                        f.write(f"{port},{service},{version}\n")
-                    
-                # Update progress without changing description for every found port
+                    # Only add to results and log if this port hasn't been seen before
+                    if port not in self.logged_ports:
+                        self.logged_ports.add(port)
+                        self.open_ports.append(port_info)
+                        
+                        # Save to file immediately
+                        with open(self.output, "a") as f:
+                            f.write(f"{port},{service},{version}\n")
+                        
+                        # Update progress bar description to show found port
+                        service_str = f" ({service} {version})".strip() if service else ""
+                        if self.progress_bar:
+                            self.progress_bar.set_description(
+                                f"{Fore.GREEN}[+] Found: Port {port}{service_str}{Style.RESET_ALL}"
+                            )
+                
                 if self.progress_bar:
                     self.progress_bar.update(1)
             
             except Exception as e:
                 if self.progress_bar:
                     self.progress_bar.update(1)
+                # Clean up exception to free memory
+                del e
             
             finally:
                 self.port_queue.task_done()
@@ -163,9 +178,8 @@ class PortScanner:
         for port in self.port_list:
             self.port_queue.put(port)
         
-        # Create and start progress bar with minimal output format
-        self.progress_bar = tqdm(total=len(self.port_list), desc="Scanning", unit="port",
-                                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
+        # Create and start progress bar with reduced update frequency
+        self.progress_bar = tqdm(total=len(self.port_list), desc="Scanning", unit="port", miniters=max(1, len(self.port_list)//500))
         
         # Start worker threads
         threads = []
@@ -183,7 +197,7 @@ class PortScanner:
         # Close progress bar
         self.progress_bar.close()
         
-        # Display results only at the end
+        # Display results
         print("\n" + "=" * 60)
         print(f"{Fore.CYAN}[*] Port Scan Results for {self.target} ({ip}){Style.RESET_ALL}")
         print("=" * 60)
@@ -194,30 +208,23 @@ class PortScanner:
             # Sort by port number
             self.open_ports.sort(key=lambda x: x[0])
             
-            # Print summary first
-            print(f"{Fore.GREEN}[+] Found {len(self.open_ports)} open ports{Style.RESET_ALL}")
-            
-            # Build a table format - with limited output
-            max_ports_to_display = 20  # Limit display to save memory and output
+            # Build a table format
             print(f"{Fore.GREEN}| {'PORT':<8} | {'STATE':<8} | {'SERVICE':<15} | {'VERSION':<20} |{Style.RESET_ALL}")
             print(f"{'-' * 60}")
             
-            for port, service, version in self.open_ports[:max_ports_to_display]:
+            for port, service, version in self.open_ports:
                 service = service or "unknown"
                 version = version or ""
                 print(f"| {port:<8} | {'open':<8} | {service:<15} | {version[:20]:<20} |")
             
-            # If there are more ports than our display limit, show count of remaining
-            if len(self.open_ports) > max_ports_to_display:
-                print(f"\n{Fore.GREEN}... and {len(self.open_ports) - max_ports_to_display} more ports (see output file for full results){Style.RESET_ALL}")
-            
             print("\n" + "=" * 60)
+            print(f"{Fore.GREEN}[+] Found {len(self.open_ports)} open ports{Style.RESET_ALL}")
             print(f"{Fore.GREEN}[+] Results saved to {self.output}{Style.RESET_ALL}")
         
-        # Clean up memory before returning
-        result_copy = list(self.open_ports)
-        self.open_ports = []  # Clear memory
-        self.port_list = []   # Clear port list
-        self.port_queue = Queue()  # Reset queue
+        # Clean up resources
+        self.logged_ports.clear()
         
-        return result_copy 
+        # Return a copy of results and clear the original to free memory
+        results_copy = self.open_ports.copy()
+        self.open_ports = []
+        return results_copy 

@@ -1,11 +1,8 @@
 [phases.setup]
-nixPkgs = ["python310Full", "gcc"]
+nixPkgs = ["python310", "gcc", "python310Packages.pip", "python310Packages.wheel", "python310Packages.setuptools"]
 
 [phases.install]
-cmds = [
-  # Install packages with pip from the Python path
-  "/nix/store/*/bin/pip install -r requirements.txt --disable-pip-version-check"
-]
+cmds = ["pip install --disable-pip-version-check -r requirements.txt"]
 
 [start]
 cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT" 

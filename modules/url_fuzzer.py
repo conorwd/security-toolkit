@@ -97,8 +97,8 @@ class URLFuzzer:
         # Track valid domains to avoid rechecking invalid ones
         self.invalid_domains = set()
         
-        # To prevent duplicate url reports
-        self.found_url_hashes = set()
+        # For tracking already logged results to prevent duplicate progress bar updates
+        self.logged_results = set()
         
         # Validate and prepare
         self._validate_target()
@@ -404,20 +404,6 @@ class URLFuzzer:
         print(f"{Fore.CYAN}[*] Total paths to fuzz: {self.total_paths}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}[*] Will scan plain paths first, then paths with extensions{Style.RESET_ALL}")
     
-    def _is_duplicate_url(self, url, status, content_length):
-        """Check if this URL has already been found (to prevent duplicate logging)"""
-        # Create a unique hash for this URL result
-        result_hash = f"{url}:{status}:{content_length}"
-        hash_digest = hashlib.md5(result_hash.encode()).hexdigest()
-        
-        # Check if we've seen this result before
-        if hash_digest in self.found_url_hashes:
-            return True
-        
-        # If not, add it to our set
-        self.found_url_hashes.add(hash_digest)
-        return False
-
     def _fuzz_worker(self):
         """Worker function for URL fuzzing threads"""
         while not self.queue.empty():
@@ -458,18 +444,29 @@ class URLFuzzer:
                 
                 # Use more comprehensive validation to determine if this is a real page
                 if is_sensitive_protected or self._is_valid_response(response, url):
-                    # Check if this is a duplicate to avoid repeating the same entry
-                    if not self._is_duplicate_url(url, status, content_length):
+                    # Create a result key to avoid duplicate log entries
+                    result_key = f"{url}:{status}"
+                    if result_key not in self.logged_results:
+                        self.logged_results.add(result_key)
+                        
+                        # Choose color based on status and whether it's a protected file
+                        if is_sensitive_protected:
+                            color = Fore.YELLOW
+                            status_text = f"{color}[{status}] {url} - {content_length} bytes [PROTECTED]{Style.RESET_ALL}"
+                        else:
+                            color = Fore.GREEN if status < 300 else Fore.YELLOW
+                            status_text = f"{color}[{status}] {url} - {content_length} bytes{Style.RESET_ALL}"
+                        
                         self.found_urls.append((url, status, content_length))
                         
-                        # Save to file immediately but without console output
+                        # Save to file immediately
                         with open(self.output, "a") as f:
                             if is_sensitive_protected:
                                 f.write(f"{status} - {url} - {content_length} bytes [PROTECTED]\n")
                             else:
                                 f.write(f"{status} - {url} - {content_length} bytes\n")
                         
-                        # Call the realtime callback function if provided - with reduced payload
+                        # Call the realtime callback function if provided
                         if self.realtime_callback:
                             # Get the path relative to the target
                             path = url.replace(self.target, "").lstrip("/")
@@ -477,44 +474,59 @@ class URLFuzzer:
                                 path = "/"
                             
                             result_type = "protected" if is_sensitive_protected else "normal"
+                            status_reason = "Forbidden" if status == 403 else "OK" if status == 200 else "Redirect" if status in [301, 302] else f"Status {status}"
                             
-                            # Call the callback with the result - minimal data for efficiency
+                            # Call the callback with the result
                             self.realtime_callback({
+                                "path": path,
                                 "url": url,
                                 "status": status,
+                                "reason": status_reason,
                                 "size": content_length / 1024.0,  # Convert to KB
                                 "type": result_type
                             })
-                
-                # Only update progress counter
-                if self.progress_bar:
-                    self.progress_bar.update(1)
-                
-                # If response is 404 or another clear error, mark domain as invalid
-                if status == 404 or status >= 500:
-                    self.invalid_domains.add(domain)
+                        
+                        # Update progress bar description to show found URL (only for new results)
+                        if self.progress_bar:
+                            self.progress_bar.set_description(status_text)
+                    
+                    # Always update the progress bar counter
+                    if self.progress_bar:
+                        self.progress_bar.update(1)
+                else:
+                    # If response is 404 or another clear error, mark domain as invalid
+                    if status == 404 or status >= 500:
+                        self.invalid_domains.add(domain)
+                        
+                    if self.progress_bar:
+                        self.progress_bar.update(1)
             
             except (requests.exceptions.RequestException, ssl.SSLError) as e:
                 # Mark domain as invalid if we can't connect to it
                 if isinstance(e, (requests.exceptions.ConnectionError, 
-                                 requests.exceptions.Timeout,
-                                 requests.exceptions.TooManyRedirects)):
+                                  requests.exceptions.Timeout,
+                                  requests.exceptions.TooManyRedirects)):
                     self.invalid_domains.add(domain)
                 
-                # Update progress
+                # Silent fail on connection errors, just update progress
                 if self.progress_bar:
                     self.progress_bar.update(1)
+                
+                # Release memory explicitly
+                del e
             
             finally:
-                # Release resources
-                response = None
                 self.queue.task_done()
+                # Explicitly release memory
+                if 'response' in locals():
+                    del response
     
     def run(self):
         """Run the URL fuzzer"""
         print(f"{Fore.CYAN}[*] Starting URL fuzzing on {self.target} with {self.threads} threads{Style.RESET_ALL}")
         print(f"{Fore.CYAN}[*] Results will be saved to {self.output}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}[*] Testing both plain paths and with extensions {','.join(self.extensions)}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}[*] Using enhanced filtering to only show valid responses{Style.RESET_ALL}")
         
         # Create output file with header
         with open(self.output, "w") as f:
@@ -524,9 +536,8 @@ class URLFuzzer:
             f.write(f"# Testing Plain Paths: Yes\n")
             f.write(f"# Extensions: {','.join(self.extensions)}\n\n")
         
-        # Create and start progress bar - simplified display format without updating description
-        self.progress_bar = tqdm(total=self.total_paths, desc="Fuzzing", unit="req", 
-                                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
+        # Create and start progress bar - set miniters to reduce progress bar updates
+        self.progress_bar = tqdm(total=self.total_paths, desc="Fuzzing", unit="req", miniters=max(1, self.total_paths//1000))
         
         # Start worker threads
         threads = []
@@ -543,7 +554,7 @@ class URLFuzzer:
         # Close progress bar
         self.progress_bar.close()
         
-        # Display results - only at the end, not during scan
+        # Display results
         print("\n" + "=" * 60)
         print(f"{Fore.CYAN}[*] URL Fuzzing Results{Style.RESET_ALL}")
         print("=" * 60)
@@ -566,51 +577,50 @@ class URLFuzzer:
                 else:
                     extended_paths.append((url, status, content_length))
             
-            # Print summary numbers first for overview
-            print(f"{Fore.GREEN}[+] Found {len(self.found_urls)} total URLs:{Style.RESET_ALL}")
+            # Display protected sensitive files first
             if protected_files:
-                print(f"{Fore.YELLOW}    - {len(protected_files)} protected sensitive files{Style.RESET_ALL}")
-            if plain_paths:
-                print(f"{Fore.GREEN}    - {len(plain_paths)} plain paths{Style.RESET_ALL}")
-            if extended_paths:
-                print(f"{Fore.GREEN}    - {len(extended_paths)} paths with extensions{Style.RESET_ALL}")
-            
-            # Option to show actual findings - limited to conserve memory/output
-            print("\nDetailed results saved to file. Showing sample of findings:")
-            
-            # Display a limited sample of protected sensitive files
-            if protected_files:
-                print(f"\n{Fore.YELLOW}PROTECTED SENSITIVE FILES (showing up to 5):{Style.RESET_ALL}")
-                for url, status, content_length in protected_files[:5]:
+                print(f"\n{Fore.YELLOW}PROTECTED SENSITIVE FILES:{Style.RESET_ALL}")
+                for url, status, content_length in protected_files:
                     print(f"{Fore.YELLOW}[{status}] {url} - {content_length} bytes [PROTECTED]{Style.RESET_ALL}")
-                if len(protected_files) > 5:
-                    print(f"{Fore.YELLOW}... and {len(protected_files)-5} more{Style.RESET_ALL}")
             
-            # Display a limited sample of plain paths
+            # Then display plain paths (without extensions)
             if plain_paths:
-                print(f"\n{Fore.GREEN}PLAIN PATHS (showing up to 5):{Style.RESET_ALL}")
-                for url, status, content_length in plain_paths[:5]:
+                print(f"\n{Fore.GREEN}PLAIN PATHS (NO EXTENSIONS):{Style.RESET_ALL}")
+                for url, status, content_length in plain_paths:
                     color = Fore.GREEN if status < 300 else Fore.YELLOW
                     print(f"{color}[{status}] {url} - {content_length} bytes{Style.RESET_ALL}")
-                if len(plain_paths) > 5:
-                    print(f"{Fore.GREEN}... and {len(plain_paths)-5} more{Style.RESET_ALL}")
             
-            # Display a limited sample of paths with extensions
+            # Finally display paths with extensions
             if extended_paths:
-                print(f"\n{Fore.GREEN}PATHS WITH EXTENSIONS (showing up to 5):{Style.RESET_ALL}")
-                for url, status, content_length in extended_paths[:5]:
+                print(f"\n{Fore.GREEN}PATHS WITH EXTENSIONS:{Style.RESET_ALL}")
+                for url, status, content_length in extended_paths:
                     color = Fore.GREEN if status < 300 else Fore.YELLOW
                     print(f"{color}[{status}] {url} - {content_length} bytes{Style.RESET_ALL}")
-                if len(extended_paths) > 5:
-                    print(f"{Fore.GREEN}... and {len(extended_paths)-5} more{Style.RESET_ALL}")
             
-            print("\n" + "=" * 60)                
+            print("\n" + "=" * 60)
+            
+            sensitive_count = len(protected_files)
+            if sensitive_count > 0:
+                print(f"{Fore.YELLOW}[+] Found {sensitive_count} protected sensitive files{Style.RESET_ALL}")
+            
+            if plain_paths:
+                print(f"{Fore.GREEN}[+] Found {len(plain_paths)} plain paths without extensions{Style.RESET_ALL}")
+                
+            if extended_paths:
+                print(f"{Fore.GREEN}[+] Found {len(extended_paths)} paths with extensions{Style.RESET_ALL}")
+                
+            print(f"{Fore.GREEN}[+] Found {len(self.found_urls)} total valid URLs{Style.RESET_ALL}")
             print(f"{Fore.GREEN}[+] Results saved to {self.output}{Style.RESET_ALL}")
         
-        # Clean up memory and return results
-        result_copy = list(self.found_urls)
-        self.found_urls = []  # Release memory
-        self.queue = Queue()  # Reset queue
-        self.invalid_domains.clear()  # Reset invalid domains
+        # Clean up resources
+        self.session.close()
+        self.logged_results.clear()
+        self.invalid_domains.clear()
+        self.baseline_samples.clear()
         
-        return result_copy 
+        # Free memory
+        if hasattr(self, 'found_urls') and self.found_urls:
+            result = self.found_urls.copy()
+            self.found_urls = []
+            return result
+        return [] 
