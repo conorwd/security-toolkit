@@ -18,7 +18,7 @@ from colorama import Fore, Style
 from urllib.parse import urlparse
 
 class SubdomainFinder:
-    def __init__(self, domain, wordlist="wordlists/subdomains.txt", threads=50, output=None, use_advanced=True, skip_wordlist=False):
+    def __init__(self, domain, wordlist="wordlists/subdomains.txt", threads=50, output=None, use_advanced=True, skip_wordlist=False, realtime_callback=None):
         """
         Initialize the subdomain finder
         
@@ -29,6 +29,7 @@ class SubdomainFinder:
             output (str): Output file path
             use_advanced (bool): Whether to use advanced discovery methods
             skip_wordlist (bool): Whether to skip traditional wordlist-based enumeration
+            realtime_callback (function): Callback function for real-time reporting of found subdomains
         """
         self.domain = domain
         self.wordlist = wordlist
@@ -40,6 +41,7 @@ class SubdomainFinder:
         self.total_subdomains = 0
         self.use_advanced = use_advanced
         self.skip_wordlist = skip_wordlist
+        self.realtime_callback = realtime_callback
         
         # Configure DNS resolver for better performance
         self.resolver = dns.resolver.Resolver()
@@ -455,6 +457,14 @@ class SubdomainFinder:
                         # Add Cloudflare indicator
                         cf_indicator = "CloudFlare" if ip_address in self.cloudflare_ips else "Direct"
                         f.write(f"{subdomain},{ip_address},{cf_indicator}\n")
+                    
+                    # Call the realtime callback function if provided
+                    if self.realtime_callback:
+                        self.realtime_callback({
+                            "subdomain": subdomain,
+                            "ip": ip_address,
+                            "type": "CloudFlare" if ip_address in self.cloudflare_ips else "Direct"
+                        })
                     
                     # Update progress bar description to show found subdomain only for new findings
                     if self.progress_bar:

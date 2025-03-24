@@ -85,6 +85,14 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
     """Run a tool in a background thread"""
     output_file = f"results/results_{task_id}.txt"
     
+    # Initialize real-time results tracking
+    if task_id not in task_results:
+        task_results[task_id] = []
+    
+    # Define a callback for this specific task
+    def callback_wrapper(result):
+        task_results[task_id].append(result)
+    
     try:
         if tool_type == "subdomain":
             domain = params['domain']
@@ -98,7 +106,8 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
                 threads=threads,
                 output=output_file,
                 use_advanced=advanced,
-                skip_wordlist=skip_wordlist
+                skip_wordlist=skip_wordlist,
+                realtime_callback=callback_wrapper
             )
             finder.run()
             
@@ -118,12 +127,6 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
             # Add http:// prefix if not present
             if not domain.startswith(('http://', 'https://')):
                 domain = 'https://' + domain
-                
-            # Define a callback for this specific task
-            def callback_wrapper(result):
-                if task_id not in task_results:
-                    task_results[task_id] = []
-                task_results[task_id].append(result)
             
             fuzzer = URLFuzzer(
                 target=domain,
@@ -148,7 +151,8 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
                 ports=ports,
                 threads=threads,
                 output=output_file,
-                timeout=params.get('timeout', 1.0)
+                timeout=params.get('timeout', 1.0),
+                realtime_callback=callback_wrapper
             )
             scanner.run()
             
@@ -248,15 +252,9 @@ async def live_results(task_id: str):
     
     # Return the most recent results
     if task_id in task_results:
-        return {
-            'results': task_results[task_id],
-            'status': running_tasks[task_id]['status']
-        }
+        return {"results": task_results[task_id]}
     else:
-        return {
-            'results': [],
-            'status': running_tasks[task_id]['status']
-        }
+        return {"results": []}
 
 @app.get("/download/{task_id}")
 async def download_results(task_id: str):

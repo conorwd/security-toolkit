@@ -11,7 +11,7 @@ from tqdm import tqdm
 from colorama import Fore, Style
 
 class PortScanner:
-    def __init__(self, target, ports="1-1000", timeout=1.0, output=None, threads=50):
+    def __init__(self, target, ports="1-1000", timeout=1.0, output=None, threads=50, realtime_callback=None):
         """
         Initialize the port scanner
         
@@ -21,6 +21,7 @@ class PortScanner:
             timeout (float): Timeout in seconds
             output (str): Output file path
             threads (int): Number of threads
+            realtime_callback (function): Callback function for real-time reporting of found ports
         """
         self.target = target
         self.ports_str = ports
@@ -30,6 +31,7 @@ class PortScanner:
         self.open_ports = []
         self.progress_bar = None
         self.port_list = []
+        self.realtime_callback = realtime_callback
         
         # For tracking already reported ports
         self.logged_ports = set()
@@ -137,6 +139,14 @@ class PortScanner:
                         # Save to file immediately
                         with open(self.output, "a") as f:
                             f.write(f"{port},{service},{version}\n")
+                        
+                        # Call the realtime callback function if provided
+                        if self.realtime_callback:
+                            self.realtime_callback({
+                                "port": port,
+                                "service": service,
+                                "version": version
+                            })
                         
                         # Update progress bar description to show found port
                         service_str = f" ({service} {version})".strip() if service else ""
