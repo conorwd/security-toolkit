@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from modules.url_fuzzer import URLFuzzer
 from modules.subdomain_finder import SubdomainFinder
 from modules.port_scanner import PortScanner
+from modules.waf_detector import WAFDetector
 
 app = FastAPI(
     title="Security Toolkit API",
@@ -83,21 +84,25 @@ class ResultItem(BaseModel):
 # Task runner
 def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
     """Run a tool in a background thread"""
-    output_file = f"results/results_{task_id}.txt"
+    # Set up results directory and file
+    os.makedirs('results', exist_ok=True)
+    output_file = f"results/{task_id}.txt"
     
-    # Initialize real-time results tracking
+    # Initialize an empty list for real-time results
     if task_id not in task_results:
         task_results[task_id] = []
     
-    # Define a callback for this specific task
+    # Callback function for real-time results
     def callback_wrapper(result):
-        task_results[task_id].append(result)
+        if task_id in task_results:
+            task_results[task_id].append(result)
     
     try:
+        # Run the appropriate tool based on tool_type
         if tool_type == "subdomain":
             domain = params['domain']
             threads = int(params.get('threads', 50))
-            advanced = params.get('advanced_discovery', True)
+            use_advanced = params.get('advanced_discovery', True)
             skip_wordlist = params.get('skip_wordlist', False)
             
             finder = SubdomainFinder(
@@ -105,7 +110,7 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
                 wordlist="wordlists/subdomains.txt",
                 threads=threads,
                 output=output_file,
-                use_advanced=advanced,
+                use_advanced=use_advanced,
                 skip_wordlist=skip_wordlist,
                 realtime_callback=callback_wrapper
             )
@@ -156,12 +161,28 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
             )
             scanner.run()
             
+        elif tool_type == "wafdetect":
+            target = params['target']
+            timeout = int(params.get('timeout', 10))
+            
+            # Add http:// prefix if not present
+            if not target.startswith(('http://', 'https://')):
+                target = 'https://' + target
+            
+            detector = WAFDetector(
+                target=target,
+                timeout=timeout,
+                output=output_file,
+                realtime_callback=callback_wrapper
+            )
+            detector.run()
+            
         # Update task status to completed
         running_tasks[task_id]['status'] = 'completed'
         running_tasks[task_id]['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
     except Exception as e:
-        # Handle errors
+        # Update task status to error and store the error message
         running_tasks[task_id]['status'] = 'error'
         running_tasks[task_id]['error'] = str(e)
         running_tasks[task_id]['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -169,6 +190,10 @@ def run_tool_in_thread(task_id: str, tool_type: str, params: dict):
         # Write error to output file
         with open(output_file, "w") as f:
             f.write(f"Error running {tool_type} on {params['domain']}:\n\n{str(e)}")
+        
+        # Ensure the task_id exists in task_results even if an error occurs
+        if task_id not in task_results:
+            task_results[task_id] = []
 
 @app.get("/")
 async def root():
